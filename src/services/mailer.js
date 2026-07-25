@@ -1,8 +1,18 @@
 import nodemailer from 'nodemailer';
-import env, { isMailConfigured } from '../config/env.js';
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
+import env, { isMailConfigured, isSesConfigured } from '../config/env.js';
 
 let transporter = null;
-if (isMailConfigured) {
+let ses = null;
+if (isSesConfigured) {
+  ses = new SESv2Client({
+    region: env.aws.region,
+    credentials: {
+      accessKeyId: env.aws.accessKeyId,
+      secretAccessKey: env.aws.secretAccessKey,
+    },
+  });
+} else if (isMailConfigured) {
   transporter = nodemailer.createTransport({
     host: env.smtp.host,
     port: env.smtp.port,
@@ -11,14 +21,43 @@ if (isMailConfigured) {
   });
 }
 
-// Sends an email; without SMTP credentials it logs to the console instead
-// (same dev pattern as OTPs) so flows remain testable.
+// Sends an email via SES (MAIL_PROVIDER=ses) or SMTP; with neither configured
+// it logs to the console instead (same dev pattern as OTPs) so flows remain
+// testable.
 export async function sendMail({ to, subject, html }) {
-  if (!transporter) {
-    console.log(`📧 [mail:dev] To: ${to} | Subject: ${subject}\n${html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`);
-    return { dev: true };
+  if (ses) {
+    return ses.send(
+      new SendEmailCommand({
+        FromEmailAddress: env.smtp.from,
+        Destination: { ToAddresses: [to] },
+        Content: {
+          Simple: {
+            Subject: { Data: subject, Charset: 'UTF-8' },
+            Body: { Html: { Data: html, Charset: 'UTF-8' } },
+          },
+        },
+      })
+    );
   }
-  return transporter.sendMail({ from: env.smtp.from, to, subject, html });
+  if (transporter) {
+    return transporter.sendMail({ from: env.smtp.from, to, subject, html });
+  }
+  console.log(`📧 [mail:dev] To: ${to} | Subject: ${subject}\n${html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`);
+  return { dev: true };
+}
+
+export function otpEmail(user, otp) {
+  return {
+    to: user.email,
+    subject: `${otp} is your Besqaa verification code`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#0a1024;color:#f3f5fd;padding:28px;border-radius:14px;">
+        <h1 style="color:#d4af37;margin:0 0 6px;">Verify your account</h1>
+        <p style="color:#9aa3c7;margin:0 0 18px;">Hi ${user.name}, use this code to verify your Besqaa account:</p>
+        <p style="font-size:34px;letter-spacing:10px;font-weight:bold;text-align:center;background:#141c3d;border:1px solid #26305a;border-radius:10px;padding:16px 0;margin:0 0 18px;">${otp}</p>
+        <p style="color:#9aa3c7;font-size:13px;">This code expires in 10 minutes. If you didn't request it, you can safely ignore this email.</p>
+      </div>`,
+  };
 }
 
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;

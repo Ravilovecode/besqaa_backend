@@ -31,10 +31,33 @@ const env = {
     pass: process.env.SMTP_PASS || '',
     from: process.env.MAIL_FROM || 'Besqaa <no-reply@besqaa.in>',
   },
+  // 'ses' = send via Amazon SES using the AWS keys above; 'smtp' or empty = use
+  // SMTP when configured, otherwise log to console (dev mode).
+  mailProvider: (process.env.MAIL_PROVIDER || '').toLowerCase(),
+  sms: {
+    // 'sns' = send via AWS SNS; empty = log to console (dev mode).
+    provider: (process.env.SMS_PROVIDER || '').toLowerCase(),
+    senderId: process.env.SMS_SENDER_ID || '',
+    // TRAI DLT registration (required for the cheap India local route).
+    dltEntityId: process.env.SMS_DLT_ENTITY_ID || '',
+    dltTemplateId: process.env.SMS_DLT_TEMPLATE_ID || '',
+    // Must match the DLT-registered template word-for-word; {#var#} = the OTP.
+    otpTemplate:
+      process.env.SMS_OTP_TEMPLATE ||
+      'Your Besqaa verification code is {#var#}. It is valid for 10 minutes. Do not share it with anyone.',
+  },
 };
 
 export const isMailConfigured = Boolean(
   process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
+);
+
+export const isSesConfigured = Boolean(
+  env.mailProvider === 'ses' && env.aws.accessKeyId && env.aws.secretAccessKey
+);
+
+export const isSmsConfigured = Boolean(
+  env.sms.provider === 'sns' && env.aws.accessKeyId && env.aws.secretAccessKey
 );
 
 export const isS3Configured = Boolean(

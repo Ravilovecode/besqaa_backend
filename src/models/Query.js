@@ -6,7 +6,8 @@ const querySchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, lowercase: true, trim: true },
+    // Optional — the controller requires at least one of email/phone.
+    email: { type: String, lowercase: true, trim: true },
     phone: { type: String, default: '' },
     category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
     subject: { type: String, required: true, trim: true },

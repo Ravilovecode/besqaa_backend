@@ -16,13 +16,23 @@ const addressSchema = new mongoose.Schema(
   { _id: true, timestamps: true }
 );
 
+const buybackSchema = new mongoose.Schema(
+  {
+    date: { type: Date, required: true },
+    amount: { type: Number, required: true, min: 1 },
+  },
+  { _id: true }
+);
+
+export const MAX_BUYBACKS = 15;
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+    // Optional — accounts can be phone-only. Uniqueness enforced via the
+    // sparse index below so multiple email-less accounts don't collide.
     email: {
       type: String,
-      required: true,
-      unique: true,
       lowercase: true,
       trim: true,
     },
@@ -42,12 +52,24 @@ const userSchema = new mongoose.Schema(
     otpExpiresAt: { type: Date, select: false },
     otpGeneratedAt: { type: Date }, // absent = legacy account (pre-OTP feature)
 
-    // ---- Buyback (from the buyer's furniture card) ----
+    // ---- Buybacks (from the buyer's furniture card, up to 15) ----
+    buybacks: {
+      type: [buybackSchema],
+      default: [],
+      validate: {
+        validator: (v) => v.length <= MAX_BUYBACKS,
+        message: `You can save up to ${MAX_BUYBACKS} buybacks`,
+      },
+    },
+    // Legacy single-entry mirror — kept in sync with the next upcoming
+    // buyback so older clients keep working.
     buybackDate: { type: Date },
     buybackAmount: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true }
 );
+
+userSchema.index({ email: 1 }, { unique: true, sparse: true });
 
 userSchema.pre('save', async function hashPassword(next) {
   if (!this.isModified('password')) return next();
