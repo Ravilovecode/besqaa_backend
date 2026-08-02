@@ -16,7 +16,7 @@ import {
 const DOMAIN = 'besqaa.in';
 // Sandbox testing: this address is verified as both sender and recipient so
 // you can receive real OTP emails before the domain DNS / production access.
-const TEST_EMAIL = 'aloksharma@inzint.com';
+const TEST_EMAIL = 'besqaa4india@gmail.com';
 
 const client = new SESv2Client({
   region: process.env.AWS_REGION,
