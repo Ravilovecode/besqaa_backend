@@ -29,8 +29,9 @@ export const MAX_BUYBACKS = 15;
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    // Optional — accounts can be phone-only. Uniqueness enforced via the
-    // sparse index below so multiple email-less accounts don't collide.
+    // Required at signup (enforced in the register controller); kept optional
+    // here for older phone-only accounts. Uniqueness enforced via the sparse
+    // index below so those email-less accounts don't collide.
     email: {
       type: String,
       lowercase: true,
@@ -44,7 +45,7 @@ const userSchema = new mongoose.Schema(
     addresses: [addressSchema],
     savedProducts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
 
-    // ---- OTP verification (either email OR phone verifies the account) ----
+    // ---- OTP verification (email OTP verifies the account; phone OTP is off for now) ----
     emailVerified: { type: Boolean, default: false },
     phoneVerified: { type: Boolean, default: false },
     emailOtp: { type: String, select: false },

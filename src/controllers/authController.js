@@ -4,7 +4,6 @@ import { badRequest, unauthorized, notFound } from '../utils/ApiError.js';
 import { signToken } from '../utils/token.js';
 import { uploadBufferToS3 } from '../services/s3.js';
 import { sendMail, otpEmail } from '../services/mailer.js';
-import { sendSms, otpSms } from '../services/sms.js';
 import User, { MAX_BUYBACKS } from '../models/User.js';
 import env from '../config/env.js';
 
@@ -19,87 +18,86 @@ function publicUser(user) {
 
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-// Generates + stores fresh OTPs on the user, then dispatches them via
-// email (SES/SMTP) and SMS (SNS). Unconfigured providers log to the console;
-// a failed send never blocks the flow — the user can hit resend.
+// Generates + stores a fresh email OTP on the user and emails it. Phone is not
+// verified for now (SMS OTP is off), so no phone OTP is issued. An
+// unconfigured mail provider logs to the console; a failed send never blocks
+// the flow — the user can hit resend.
 async function issueOtps(user) {
-  // Email is optional — only issue an email OTP when the account has one.
-  const emailOtp = user.email ? String(crypto.randomInt(100000, 1000000)) : undefined;
-  const phoneOtp = String(crypto.randomInt(100000, 1000000));
+  const emailOtp = String(crypto.randomInt(100000, 1000000));
   user.emailOtp = emailOtp;
-  user.phoneOtp = phoneOtp;
+  user.phoneOtp = undefined;
   user.otpExpiresAt = new Date(Date.now() + OTP_TTL_MS);
   user.otpGeneratedAt = new Date();
   await user.save();
 
-  const dispatches = [];
-  if (user.email) dispatches.push(['email', sendMail(otpEmail(user, emailOtp))]);
-  if (user.phone) dispatches.push(['SMS', sendSms(user.phone, otpSms(phoneOtp))]);
-  const results = await Promise.allSettled(dispatches.map(([, p]) => p));
-  results.forEach((r, i) => {
-    if (r.status === 'rejected') {
-      console.error(`OTP ${dispatches[i][0]} send failed for ${user.email || user.phone}:`, r.reason?.message || r.reason);
-    }
-  });
+  try {
+    await sendMail(otpEmail(user, emailOtp));
+  } catch (err) {
+    console.error(`OTP email send failed for ${user.email}:`, err?.message || err);
+  }
 
   if (env.nodeEnv !== 'production') {
-    console.log(`📩 OTP for ${user.email || '(no email)'}: ${emailOtp || '—'} | 📱 OTP for ${user.phone}: ${phoneOtp}`);
+    console.log(`📩 OTP for ${user.email}: ${emailOtp}`);
   }
-  return { emailOtp, phoneOtp };
+  return { emailOtp };
 }
 
-// Outside production, echo OTPs in the response so the flow is testable
-// without an email/SMS provider.
+// Outside production, echo the OTP in the response so the flow is testable
+// without an email provider.
 function devOtpPayload(otps) {
-  return env.nodeEnv !== 'production' ? { devOtps: { email: otps.emailOtp, phone: otps.phoneOtp } } : {};
+  return env.nodeEnv !== 'production' ? { devOtps: { email: otps.emailOtp } } : {};
 }
 
 // POST /api/auth/register  (buyer / "candidate")
-// Requires name, phone and password; email is optional. The account must then
-// be verified via OTP (phone, or email when provided).
+// Requires name, email and password; phone is optional and not verified. The
+// account must then be verified via the OTP sent to the email.
 export const register = asyncHandler(async (req, res) => {
   const { name, email, password, phone } = req.body;
-  if (!name || !password || !phone) {
-    throw badRequest('name, phone and password are required');
+  const cleanEmail = email?.trim() ? email.trim().toLowerCase() : undefined;
+  if (!name || !cleanEmail || !password) {
+    throw badRequest('name, email and password are required');
   }
+  if (!/^\S+@\S+\.\S+$/.test(cleanEmail)) throw badRequest('Please enter a valid email address');
   if (password.length < 6) throw badRequest('Password must be at least 6 characters');
-  if (!/^\+?\d{10,14}$/.test(phone.replace(/[\s-]/g, ''))) {
+
+  const cleanPhone = phone?.trim() ? phone.trim() : undefined;
+  if (cleanPhone && !/^\+?\d{10,14}$/.test(cleanPhone.replace(/[\s-]/g, ''))) {
     throw badRequest('Please enter a valid phone number');
   }
 
-  const cleanEmail = email?.trim() ? email.trim().toLowerCase() : undefined;
-  if (cleanEmail && !/^\S+@\S+\.\S+$/.test(cleanEmail)) {
-    throw badRequest('Please enter a valid email address');
+  const exists = await User.findOne({ email: cleanEmail });
+  if (exists) throw badRequest('An account with this email already exists');
+  // Phone can also be used to log in, so when given it must be unique.
+  if (cleanPhone) {
+    const phoneExists = await User.findOne({ phone: cleanPhone });
+    if (phoneExists) throw badRequest('An account with this phone number already exists');
   }
-  if (cleanEmail) {
-    const exists = await User.findOne({ email: cleanEmail });
-    if (exists) throw badRequest('An account with this email already exists');
-  }
-  // Phone is the fallback login identifier, so it must be unique too.
-  const phoneExists = await User.findOne({ phone });
-  if (phoneExists) throw badRequest('An account with this phone number already exists');
 
-  const user = await User.create({ name, ...(cleanEmail && { email: cleanEmail }), password, phone });
+  const user = await User.create({
+    name,
+    email: cleanEmail,
+    password,
+    ...(cleanPhone && { phone: cleanPhone }),
+  });
   const otps = await issueOtps(user);
 
   res.status(201).json({
     requiresVerification: true,
     pendingId: user._id,
-    email: user.email || '',
+    email: user.email,
     phone: user.phone,
-    message: user.email
-      ? 'Enter the OTP sent to your email or phone — either one verifies your account.'
-      : 'Enter the OTP sent to your phone to verify your account.',
+    message: 'Enter the OTP sent to your email to verify your account.',
     ...devOtpPayload(otps),
   });
 });
 
-// POST /api/auth/verify-otp   { pendingId, emailOtp?, phoneOtp? }
-// EITHER code verifies the account and issues the auth token.
+// POST /api/auth/verify-otp   { pendingId, emailOtp }
+// The email code verifies the account and issues the auth token. (phoneOtp is
+// still accepted for codes issued before SMS OTP was switched off.)
 export const verifyOtp = asyncHandler(async (req, res) => {
   const { pendingId, emailOtp, phoneOtp } = req.body;
   if (!pendingId) throw badRequest('pendingId is required');
-  if (!emailOtp && !phoneOtp) throw badRequest('Enter the OTP from your email or phone');
+  if (!emailOtp && !phoneOtp) throw badRequest('Enter the OTP from your email');
 
   const user = await User.findById(pendingId).select('+emailOtp +phoneOtp +otpExpiresAt');
   if (!user) throw notFound('Account not found');
@@ -129,9 +127,10 @@ export const resendOtp = asyncHandler(async (req, res) => {
   if (!pendingId) throw badRequest('pendingId is required');
   const user = await User.findById(pendingId);
   if (!user) throw notFound('Account not found');
+  if (!user.email) throw badRequest('This account has no email address — please contact support');
   const otps = await issueOtps(user);
   res.json({
-    message: user.email ? 'New OTPs sent to your email and phone' : 'New OTP sent to your phone',
+    message: 'New OTP sent to your email',
     ...devOtpPayload(otps),
   });
 });
@@ -165,16 +164,17 @@ export const login = asyncHandler(async (req, res) => {
       // Legacy account created before OTP verification existed — grandfather in.
       user.emailVerified = true;
       await user.save();
+    } else if (!user.email) {
+      // Phone-only accounts can't be verified while SMS OTP is off.
+      throw unauthorized('Your account needs an email address to verify — please contact support');
     } else {
       const otps = await issueOtps(user);
       return res.status(403).json({
         requiresVerification: true,
         pendingId: user._id,
-        email: user.email || '',
+        email: user.email,
         phone: user.phone,
-        message: user.email
-          ? 'Please verify your account — enter the OTP sent to your email or phone.'
-          : 'Please verify your account — enter the OTP sent to your phone.',
+        message: 'Please verify your account — enter the OTP sent to your email.',
         ...devOtpPayload(otps),
       });
     }

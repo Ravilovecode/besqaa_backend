@@ -100,7 +100,12 @@ try {
   });
   check('unauthenticated product create rejected', noAuth.status === 401 || noAuth.status === 403);
 
-  console.log('\n▶ Buyer register (email + phone) + OTP verify (either code works)');
+  console.log('\n▶ Buyer register (email required, phone optional) + email OTP verify');
+  const noEmail = await j('POST', '/auth/register', {
+    body: { name: 'No Email', phone: '+919811111111', password: 'secret123' },
+  });
+  check('register without email rejected', noEmail.status === 400);
+
   const reg = await j('POST', '/auth/register', {
     body: {
       name: 'Ravi Sharma',
@@ -110,20 +115,42 @@ try {
     },
   });
   check('register returns pending verification', reg.status === 201 && reg.data.requiresVerification);
-  check('dev OTPs returned outside production', !!reg.data.devOtps?.phone);
+  check('dev email OTP returned outside production', !!reg.data.devOtps?.email);
+  check('no phone OTP issued', !reg.data.devOtps?.phone);
+
+  const dupPhone = await j('POST', '/auth/register', {
+    body: { name: 'Dup', email: 'dup@anandtraders.in', phone: '+919876543210', password: 'secret123' },
+  });
+  check('duplicate phone rejected', dupPhone.status === 400);
+
+  // Two phone-less signups must not collide on the (absent) phone.
+  const noPhone1 = await j('POST', '/auth/register', {
+    body: { name: 'No Phone 1', email: 'nophone1@anandtraders.in', password: 'secret123' },
+  });
+  const noPhone2 = await j('POST', '/auth/register', {
+    body: { name: 'No Phone 2', email: 'nophone2@anandtraders.in', password: 'secret123' },
+  });
+  check('register without phone allowed (twice)', noPhone1.status === 201 && noPhone2.status === 201);
 
   const badOtp = await j('POST', '/auth/verify-otp', {
     body: { pendingId: reg.data.pendingId, emailOtp: '000000' },
   });
   check('wrong OTP rejected', badOtp.status === 400);
 
-  // Verify with ONLY the phone OTP — either channel must be enough.
   const verify = await j('POST', '/auth/verify-otp', {
-    body: { pendingId: reg.data.pendingId, phoneOtp: reg.data.devOtps.phone },
+    body: { pendingId: reg.data.pendingId, emailOtp: reg.data.devOtps.email },
   });
-  check('phone OTP alone verifies + returns token', !!verify.data.token);
-  check('phoneVerified set, emailVerified not', verify.data.user.phoneVerified === true && verify.data.user.emailVerified === false);
+  check('email OTP verifies + returns token', !!verify.data.token);
+  check('emailVerified set', verify.data.user.emailVerified === true);
   const userToken = verify.data.token;
+
+  const unverifiedLogin = await j('POST', '/auth/login', {
+    body: { email: 'nophone1@anandtraders.in', password: 'secret123' },
+  });
+  check(
+    'unverified login asks for email OTP',
+    unverifiedLogin.status === 403 && unverifiedLogin.data.requiresVerification && !!unverifiedLogin.data.devOtps?.email
+  );
 
   console.log('\n▶ Buyback');
   const buyback = await j('PUT', '/auth/me/buyback', {
