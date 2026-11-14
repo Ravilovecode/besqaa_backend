@@ -26,7 +26,7 @@ export function toE164India(phone) {
 // Twilio Messages API over HTTPS (no SDK needed). TWILIO_FROM may be a Twilio
 // number or a Messaging Service SID (MG...).
 async function sendViaTwilio(to, message) {
-  const { accountSid, authToken, from } = env.sms.twilio;
+  const { accountSid, authToken, smsFrom: from } = env.twilio;
   const body = new URLSearchParams({ To: to, Body: message });
   body.set(from.startsWith('MG') ? 'MessagingServiceSid' : 'From', from);
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {

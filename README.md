@@ -25,8 +25,9 @@ AWS_REGION=ap-south-1
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 S3_BUCKET=besqaa-product-images
-# Email (OTP + order-confirmed) — MAIL_PROVIDER = sendgrid | resend | brevo | ses,
+# Email (OTP + order-confirmed) — MAIL_PROVIDER = twilio | sendgrid | resend | brevo | ses,
 # or empty for SMTP; nothing configured = logged to console. Render's free tier blocks SMTP.
+# twilio reuses TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN below.
 MAIL_PROVIDER= / SENDGRID_API_KEY= / RESEND_API_KEY= / BREVO_API_KEY= / MAIL_FROM=
 SMTP_HOST= / SMTP_PORT= / SMTP_USER= / SMTP_PASS=
 # SMS OTP — SMS_PROVIDER = twilio | sns; empty = logged to console

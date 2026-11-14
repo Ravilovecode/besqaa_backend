@@ -36,16 +36,31 @@ async function postJson(url, headers, body) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const reason = data.message || data.errors?.[0]?.message || JSON.stringify(data);
+    const reason = data.message || data.detail || data.errors?.[0]?.message || JSON.stringify(data);
     throw new Error(`${new URL(url).host} responded ${res.status}: ${reason}`);
   }
   return data;
 }
 
-// Sends an email via the configured provider (MAIL_PROVIDER = ses | sendgrid |
-// resend | brevo, or SMTP); with none configured it logs to the console
-// instead (same dev pattern as OTPs) so flows remain testable.
+// Sends an email via the configured provider (MAIL_PROVIDER = ses | twilio |
+// sendgrid | resend | brevo, or SMTP); with none configured it logs to the
+// console instead (same dev pattern as OTPs) so flows remain testable.
 export async function sendMail({ to, subject, html }) {
+  if (activeMailProvider === 'twilio') {
+    // Twilio Email API. On a trial account MAIL_FROM must be
+    // "<AccountSid>@twilio.email" until your own domain is verified in Twilio.
+    const { accountSid, authToken } = env.twilio;
+    const sender = parseFrom(env.smtp.from);
+    return postJson(
+      'https://comms.twilio.com/v1/Emails',
+      { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}` },
+      {
+        from: { address: sender.email, name: sender.name || 'Besqaa' },
+        to: [{ address: to }],
+        content: { subject, html },
+      }
+    );
+  }
   if (activeMailProvider === 'sendgrid') {
     return postJson(
       'https://api.sendgrid.com/v3/mail/send',
