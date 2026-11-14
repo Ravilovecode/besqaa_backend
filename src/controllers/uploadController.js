@@ -1,12 +1,12 @@
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { badRequest } from '../utils/ApiError.js';
-import { uploadBufferToS3 } from '../services/s3.js';
+import { saveImage } from '../services/images.js';
 
 // POST /api/upload/payment-proof  (buyer, multipart, field "proof")
 // Screenshot of a completed UPI/online payment, attached to the order.
 export const uploadPaymentProof = asyncHandler(async (req, res) => {
   if (!req.file) throw badRequest('No screenshot provided');
-  const { url } = await uploadBufferToS3(req.file, 'payment-proofs');
+  const { url } = await saveImage(req.file.buffer, 'payment-proofs');
   res.status(201).json({ url });
 });
 
@@ -16,7 +16,9 @@ export const uploadImages = asyncHandler(async (req, res) => {
   if (!files.length) throw badRequest('No image file provided');
 
   const folder = req.query.folder || 'products';
-  const results = await Promise.all(files.map((f) => uploadBufferToS3(f, folder)));
+  // One at a time: image processing is memory-heavy on a small instance.
+  const results = [];
+  for (const f of files) results.push(await saveImage(f.buffer, folder));
 
   res.status(201).json({
     urls: results.map((r) => r.url),

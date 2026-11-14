@@ -3,7 +3,8 @@ import { badRequest } from '../utils/ApiError.js';
 
 const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
 
-// Keep files in memory; the controller streams the buffer straight to S3.
+// Keep files in memory; the controller resizes the buffer and stores it in
+// MongoDB (services/images.js).
 export const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB

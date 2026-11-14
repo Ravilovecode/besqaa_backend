@@ -5,6 +5,13 @@ dotenv.config();
 const env = {
   port: process.env.PORT || 5000,
   nodeEnv: process.env.NODE_ENV || 'development',
+  // Public origin of this API, used to build image URLs. Render sets
+  // RENDER_EXTERNAL_URL automatically; PUBLIC_URL overrides it.
+  publicUrl: (
+    process.env.PUBLIC_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    `http://localhost:${process.env.PORT || 5000}`
+  ).replace(/\/$/, ''),
   clientOrigins: (process.env.CLIENT_ORIGINS || '')
     .split(',')
     .map((o) => o.trim())
@@ -17,12 +24,12 @@ const env = {
     email: process.env.SEED_ADMIN_EMAIL || 'admin@besqaa.in',
     password: process.env.SEED_ADMIN_PASSWORD || 'Admin@12345',
   },
+  // Only needed for MAIL_PROVIDER=ses / SMS_PROVIDER=sns. Images are stored in
+  // MongoDB (see services/images.js), not S3.
   aws: {
     region: process.env.AWS_REGION || 'ap-south-1',
     accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-    bucket: process.env.S3_BUCKET || '',
-    publicBaseUrl: process.env.S3_PUBLIC_BASE_URL || '',
   },
   smtp: {
     host: process.env.SMTP_HOST || '',
@@ -103,9 +110,5 @@ export const isTwilioSmsConfigured = Boolean(
 export const activeSmsProvider = (isSnsConfigured && 'sns') || (isTwilioSmsConfigured && 'twilio') || null;
 
 export const isSmsConfigured = Boolean(activeSmsProvider);
-
-export const isS3Configured = Boolean(
-  env.aws.accessKeyId && env.aws.secretAccessKey && env.aws.bucket
-);
 
 export default env;

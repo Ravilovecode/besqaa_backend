@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { badRequest, unauthorized, notFound } from '../utils/ApiError.js';
 import { signToken } from '../utils/token.js';
-import { uploadBufferToS3, deleteFromS3, keyFromUrl } from '../services/s3.js';
+import { saveImage, deleteImageByUrl } from '../services/images.js';
 import { sendMail, otpEmail } from '../services/mailer.js';
 import User, { MAX_BUYBACKS } from '../models/User.js';
 import Cart from '../models/Cart.js';
@@ -201,7 +201,7 @@ export const deleteMe = asyncHandler(async (req, res) => {
 
   await Promise.all([Cart.deleteMany({ user: user._id }), Query.deleteMany({ user: user._id })]);
   try {
-    await deleteFromS3(keyFromUrl(user.avatarUrl));
+    await deleteImageByUrl(user.avatarUrl);
   } catch (err) {
     console.error(`Avatar delete failed for ${user._id}:`, err?.message || err);
   }
@@ -210,15 +210,17 @@ export const deleteMe = asyncHandler(async (req, res) => {
   res.json({ message: 'Your account has been deleted' });
 });
 
-// POST /api/auth/me/avatar   (multipart, field "avatar") — buyer profile photo → S3
+// POST /api/auth/me/avatar   (multipart, field "avatar") — buyer profile photo
 export const uploadAvatar = asyncHandler(async (req, res) => {
   if (!req.file) throw badRequest('No image provided');
-  const { url } = await uploadBufferToS3(req.file, 'avatars');
+  const { url } = await saveImage(req.file.buffer, 'avatars');
+  const previous = req.user.avatarUrl;
   const user = await User.findByIdAndUpdate(
     req.user._id,
     { avatarUrl: url },
     { new: true }
   );
+  await deleteImageByUrl(previous); // the replaced photo is no longer used
   res.json({ user: publicUser(user) });
 });
 

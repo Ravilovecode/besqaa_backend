@@ -1,6 +1,7 @@
 # Besqaa Backend
 
-Node + Express + MongoDB (Atlas) + AWS S3 API powering the Besqaa mobile app and admin panel.
+Node + Express + MongoDB (Atlas) API powering the Besqaa mobile app and admin panel.
+Uploaded images are resized with sharp and stored in MongoDB (`/api/images/:key`).
 
 Related repos: [besqaa_app](https://github.com/Ravilovecode/besqaa_app) (Expo mobile app) · besqaa_admin (React admin panel).
 
@@ -20,11 +21,8 @@ MONGO_URI=<your MongoDB / Atlas connection string, db name: besqaa>
 JWT_SECRET=<long random string>
 SEED_ADMIN_EMAIL=admin@besqaa.in
 SEED_ADMIN_PASSWORD=Admin@12345
-# S3 (product images, avatars, payment proofs):
-AWS_REGION=ap-south-1
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-S3_BUCKET=besqaa-product-images
+# Image URLs: public origin of this API (Render sets RENDER_EXTERNAL_URL itself):
+PUBLIC_URL=
 # Email (OTP + order-confirmed) — MAIL_PROVIDER = twilio | sendgrid | resend | brevo | ses,
 # or empty for SMTP; nothing configured = logged to console. Render's free tier blocks SMTP.
 # twilio reuses TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN below.

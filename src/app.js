@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 
-import env, { isS3Configured, isSesConfigured, activeMailProvider, activeSmsProvider } from './config/env.js';
+import env, { isSesConfigured, activeMailProvider, activeSmsProvider } from './config/env.js';
 import { notFoundHandler, errorHandler } from './middleware/error.js';
 
 import authRoutes from './routes/auth.routes.js';
@@ -15,6 +15,7 @@ import cartRoutes from './routes/cart.routes.js';
 import orderRoutes from './routes/order.routes.js';
 import queryRoutes from './routes/query.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
+import imageRoutes from './routes/image.routes.js';
 
 const app = express();
 
@@ -46,7 +47,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     service: 'besqaa-server',
     time: new Date().toISOString(),
-    s3Configured: isS3Configured,
+    imageStorage: 'mongodb',
     sesConfigured: isSesConfigured,
     mailConfigured: Boolean(activeMailProvider),
     mailProvider: activeMailProvider,
@@ -63,6 +64,7 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/queries', queryRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/images', imageRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

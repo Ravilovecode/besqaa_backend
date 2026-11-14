@@ -49,6 +49,19 @@ async function j(method, path, { token, body } = {}) {
   return { status: res.status, data };
 }
 
+// Multipart upload of an in-memory PNG, like the app/admin image pickers.
+async function upload(path, field, buffer, token) {
+  const form = new FormData();
+  form.append(field, new Blob([buffer], { type: 'image/png' }), 'test.png');
+  const res = await fetch(base + path, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { status: res.status, data };
+}
+
 try {
   console.log('\n▶ Health');
   const health = await j('GET', '/health');
@@ -159,6 +172,38 @@ try {
   });
   check('buyback saved', buyback.data.user?.buybackAmount === 25000);
 
+  console.log('\n▶ Images (stored in MongoDB)');
+  const sharp = (await import('sharp')).default;
+  const bigPng = await sharp({
+    create: { width: 1600, height: 1200, channels: 3, background: '#3366ff' },
+  })
+    .png()
+    .toBuffer();
+
+  const av1 = await upload('/auth/me/avatar', 'avatar', bigPng, userToken);
+  const firstAvatarUrl = av1.data.user?.avatarUrl || '';
+  check('avatar upload returns an /api/images URL', av1.status === 200 && firstAvatarUrl.includes('/api/images/'));
+  const avRes = await fetch(firstAvatarUrl);
+  const avMeta = await sharp(Buffer.from(await avRes.arrayBuffer())).metadata();
+  check(
+    'avatar served as WebP, shrunk to 512px',
+    avRes.status === 200 && avRes.headers.get('content-type') === 'image/webp' && Math.max(avMeta.width, avMeta.height) === 512
+  );
+  const av2 = await upload('/auth/me/avatar', 'avatar', bigPng, userToken);
+  const avatarUrl = av2.data.user?.avatarUrl || '';
+  check('replacing the avatar deletes the old image', av2.status === 200 && (await fetch(firstAvatarUrl)).status === 404);
+
+  const proofUpload = await upload('/upload/payment-proof', 'proof', bigPng, userToken);
+  check('payment screenshot stored', proofUpload.status === 201 && (await fetch(proofUpload.data.url)).status === 200);
+  const productUpload = await upload('/upload', 'images', bigPng, adminToken);
+  check(
+    'admin product image stored',
+    productUpload.status === 201 && productUpload.data.urls?.length === 1 && (await fetch(productUpload.data.urls[0])).status === 200
+  );
+  const corrupt = await upload('/upload/payment-proof', 'proof', Buffer.from('not an image'), userToken);
+  check('corrupt image rejected', corrupt.status === 400);
+  check('unknown image key returns 404', (await fetch(`${base}/images/doesNotExist123`)).status === 404);
+
   console.log('\n▶ Cart + order');
 
   const addCart = await j('POST', '/cart/items', {
@@ -241,6 +286,7 @@ try {
   );
   const queriesAfter = await j('GET', '/admin/queries', { token: adminToken });
   check("user's queries removed", queriesAfter.data.queries.length === 0);
+  check('profile photo removed with the account', (await fetch(avatarUrl)).status === 404);
 
   console.log(`\n──────────────\n${pass} passed, ${fail} failed\n`);
 } catch (err) {
