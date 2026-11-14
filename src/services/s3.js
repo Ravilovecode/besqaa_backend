@@ -43,6 +43,13 @@ export async function uploadBufferToS3(file, folder = 'products') {
   return { key, url: publicUrl(key) };
 }
 
+// Reverses publicUrl(): the object key for a URL this service generated, or ''
+// for anything else (e.g. an external image URL).
+export function keyFromUrl(url) {
+  const base = publicUrl('');
+  return url && url.startsWith(base) ? decodeURIComponent(url.slice(base.length)) : '';
+}
+
 export async function deleteFromS3(key) {
   if (!isS3Configured || !client || !key) return;
   await client.send(new DeleteObjectCommand({ Bucket: env.aws.bucket, Key: key }));

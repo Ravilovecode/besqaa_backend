@@ -223,6 +223,25 @@ try {
   const adminQueries = await j('GET', '/admin/queries', { token: adminToken });
   check('admin sees the query', adminQueries.data.queries.length === 1);
 
+  console.log('\n▶ Account deletion (Play Store requirement)');
+  const wrongPw = await j('DELETE', '/auth/me', { token: userToken, body: { password: 'nope' } });
+  check('delete with wrong password rejected', wrongPw.status === 401);
+  const del = await j('DELETE', '/auth/me', { token: userToken, body: { password: 'secret123' } });
+  check('account deleted', del.status === 200);
+  const afterMe = await j('GET', '/auth/me', { token: userToken });
+  check('old token no longer works', afterMe.status === 401);
+  const afterLogin = await j('POST', '/auth/login', {
+    body: { email: 'ravi@anandtraders.in', password: 'secret123' },
+  });
+  check('cannot log in after deletion', afterLogin.status === 401);
+  const ordersAfter = await j('GET', '/admin/orders', { token: adminToken });
+  check(
+    'orders kept for records, unlinked from the account',
+    ordersAfter.data.orders.length === 2 && ordersAfter.data.orders.every((o) => !o.user)
+  );
+  const queriesAfter = await j('GET', '/admin/queries', { token: adminToken });
+  check("user's queries removed", queriesAfter.data.queries.length === 0);
+
   console.log(`\n──────────────\n${pass} passed, ${fail} failed\n`);
 } catch (err) {
   console.error('Smoke test crashed:', err);

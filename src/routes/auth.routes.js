@@ -6,6 +6,7 @@ import {
   login,
   me,
   updateMe,
+  deleteMe,
   uploadAvatar,
   updateBuyback,
   addAddress,
@@ -22,6 +23,7 @@ router.post('/resend-otp', resendOtp);
 router.post('/login', login);
 router.get('/me', requireAuth, me);
 router.put('/me', requireAuth, updateMe);
+router.delete('/me', requireAuth, deleteMe);
 router.post('/me/avatar', requireAuth, upload.single('avatar'), uploadAvatar);
 router.put('/me/buyback', requireAuth, updateBuyback);
 router.post('/me/addresses', requireAuth, addAddress);

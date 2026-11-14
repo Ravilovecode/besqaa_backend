@@ -2,9 +2,11 @@ import crypto from 'crypto';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { badRequest, unauthorized, notFound } from '../utils/ApiError.js';
 import { signToken } from '../utils/token.js';
-import { uploadBufferToS3 } from '../services/s3.js';
+import { uploadBufferToS3, deleteFromS3, keyFromUrl } from '../services/s3.js';
 import { sendMail, otpEmail } from '../services/mailer.js';
 import User, { MAX_BUYBACKS } from '../models/User.js';
+import Cart from '../models/Cart.js';
+import Query from '../models/Query.js';
 import env from '../config/env.js';
 
 function publicUser(user) {
@@ -182,6 +184,30 @@ export const login = asyncHandler(async (req, res) => {
 
   const token = signToken({ id: user._id }, 'user');
   res.json({ token, user: publicUser(user) });
+});
+
+// DELETE /api/auth/me   { password }
+// Permanently deletes the buyer's account and personal data (Google Play
+// account-deletion requirement): profile, addresses, saved products, buyback
+// details, cart, product queries and profile photo. Orders are kept for
+// legal/tax retention but are no longer linked to an account.
+export const deleteMe = asyncHandler(async (req, res) => {
+  const { password } = req.body || {};
+  if (!password) throw badRequest('Enter your password to confirm');
+
+  const user = await User.findById(req.user._id).select('+password');
+  if (!user) throw notFound('Account not found');
+  if (!(await user.comparePassword(password))) throw unauthorized('Incorrect password');
+
+  await Promise.all([Cart.deleteMany({ user: user._id }), Query.deleteMany({ user: user._id })]);
+  try {
+    await deleteFromS3(keyFromUrl(user.avatarUrl));
+  } catch (err) {
+    console.error(`Avatar delete failed for ${user._id}:`, err?.message || err);
+  }
+  await user.deleteOne();
+
+  res.json({ message: 'Your account has been deleted' });
 });
 
 // POST /api/auth/me/avatar   (multipart, field "avatar") — buyer profile photo → S3
