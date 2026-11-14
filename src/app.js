@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 
-import env, { isS3Configured, isSesConfigured, isMailConfigured } from './config/env.js';
+import env, { isS3Configured, isSesConfigured, activeMailProvider, activeSmsProvider } from './config/env.js';
 import { notFoundHandler, errorHandler } from './middleware/error.js';
 
 import authRoutes from './routes/auth.routes.js';
@@ -48,8 +48,9 @@ app.get('/api/health', (req, res) => {
     time: new Date().toISOString(),
     s3Configured: isS3Configured,
     sesConfigured: isSesConfigured,
-    mailConfigured: isMailConfigured,
-    mailProvider: env.mailProvider || null,
+    mailConfigured: Boolean(activeMailProvider),
+    mailProvider: activeMailProvider,
+    smsProvider: activeSmsProvider,
   });
 });
 

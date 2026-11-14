@@ -1,10 +1,10 @@
 import nodemailer from 'nodemailer';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
-import env, { isMailConfigured, isSesConfigured } from '../config/env.js';
+import env, { activeMailProvider } from '../config/env.js';
 
 let transporter = null;
 let ses = null;
-if (isSesConfigured) {
+if (activeMailProvider === 'ses') {
   ses = new SESv2Client({
     region: env.aws.region,
     credentials: {
@@ -12,7 +12,7 @@ if (isSesConfigured) {
       secretAccessKey: env.aws.secretAccessKey,
     },
   });
-} else if (isMailConfigured) {
+} else if (activeMailProvider === 'smtp') {
   transporter = nodemailer.createTransport({
     host: env.smtp.host,
     port: env.smtp.port,
@@ -21,10 +21,57 @@ if (isSesConfigured) {
   });
 }
 
-// Sends an email via SES (MAIL_PROVIDER=ses) or SMTP; with neither configured
-// it logs to the console instead (same dev pattern as OTPs) so flows remain
-// testable.
+// Splits "Besqaa <no-reply@besqaa.in>" into { name, email } for APIs that
+// take the sender as separate fields.
+function parseFrom(from) {
+  const m = from.match(/^\s*"?(.*?)"?\s*<([^>]+)>\s*$/);
+  return m ? { name: m[1] || undefined, email: m[2] } : { email: from.trim() };
+}
+
+async function postJson(url, headers, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const reason = data.message || data.errors?.[0]?.message || JSON.stringify(data);
+    throw new Error(`${new URL(url).host} responded ${res.status}: ${reason}`);
+  }
+  return data;
+}
+
+// Sends an email via the configured provider (MAIL_PROVIDER = ses | sendgrid |
+// resend | brevo, or SMTP); with none configured it logs to the console
+// instead (same dev pattern as OTPs) so flows remain testable.
 export async function sendMail({ to, subject, html }) {
+  if (activeMailProvider === 'sendgrid') {
+    return postJson(
+      'https://api.sendgrid.com/v3/mail/send',
+      { Authorization: `Bearer ${env.sendgridApiKey}` },
+      {
+        personalizations: [{ to: [{ email: to }] }],
+        from: parseFrom(env.smtp.from),
+        subject,
+        content: [{ type: 'text/html', value: html }],
+      }
+    );
+  }
+  if (activeMailProvider === 'resend') {
+    return postJson(
+      'https://api.resend.com/emails',
+      { Authorization: `Bearer ${env.resendApiKey}` },
+      { from: env.smtp.from, to: [to], subject, html }
+    );
+  }
+  if (activeMailProvider === 'brevo') {
+    return postJson(
+      'https://api.brevo.com/v3/smtp/email',
+      { 'api-key': env.brevoApiKey },
+      { sender: parseFrom(env.smtp.from), to: [{ email: to }], subject, htmlContent: html }
+    );
+  }
   if (ses) {
     return ses.send(
       new SendEmailCommand({

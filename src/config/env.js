@@ -31,12 +31,25 @@ const env = {
     pass: process.env.SMTP_PASS || '',
     from: process.env.MAIL_FROM || 'Besqaa <no-reply@besqaa.in>',
   },
-  // 'ses' = send via Amazon SES using the AWS keys above; 'smtp' or empty = use
-  // SMTP when configured, otherwise log to console (dev mode).
+  // 'ses' = send via Amazon SES using the AWS keys above; 'sendgrid' / 'resend'
+  // / 'brevo' = send via that provider's HTTPS API; 'smtp' or empty = use SMTP
+  // when configured, otherwise log to console (dev mode).
   mailProvider: (process.env.MAIL_PROVIDER || '').toLowerCase(),
+  // HTTPS email APIs — these work on Render's free tier, which blocks
+  // outbound SMTP ports (25/465/587).
+  sendgridApiKey: process.env.SENDGRID_API_KEY || '',
+  resendApiKey: process.env.RESEND_API_KEY || '',
+  brevoApiKey: process.env.BREVO_API_KEY || '',
   sms: {
-    // 'sns' = send via AWS SNS; empty = log to console (dev mode).
+    // 'sns' = send via AWS SNS; 'twilio' = send via Twilio; empty = log to
+    // console (dev mode).
     provider: (process.env.SMS_PROVIDER || '').toLowerCase(),
+    twilio: {
+      accountSid: process.env.TWILIO_ACCOUNT_SID || '',
+      authToken: process.env.TWILIO_AUTH_TOKEN || '',
+      // A Twilio phone number (+1...) or a Messaging Service SID (MG...).
+      from: process.env.TWILIO_FROM || '',
+    },
     senderId: process.env.SMS_SENDER_ID || '',
     // TRAI DLT registration (required for the cheap India local route).
     dltEntityId: process.env.SMS_DLT_ENTITY_ID || '',
@@ -48,7 +61,7 @@ const env = {
   },
 };
 
-export const isMailConfigured = Boolean(
+export const isSmtpConfigured = Boolean(
   process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS
 );
 
@@ -56,9 +69,36 @@ export const isSesConfigured = Boolean(
   env.mailProvider === 'ses' && env.aws.accessKeyId && env.aws.secretAccessKey
 );
 
-export const isSmsConfigured = Boolean(
+export const isSendgridConfigured = Boolean(env.mailProvider === 'sendgrid' && env.sendgridApiKey);
+
+export const isResendConfigured = Boolean(env.mailProvider === 'resend' && env.resendApiKey);
+
+export const isBrevoConfigured = Boolean(env.mailProvider === 'brevo' && env.brevoApiKey);
+
+// The email provider actually in use; null = emails are logged to the console.
+export const activeMailProvider =
+  (isSesConfigured && 'ses') ||
+  (isSendgridConfigured && 'sendgrid') ||
+  (isResendConfigured && 'resend') ||
+  (isBrevoConfigured && 'brevo') ||
+  (isSmtpConfigured && 'smtp') ||
+  null;
+
+export const isSnsConfigured = Boolean(
   env.sms.provider === 'sns' && env.aws.accessKeyId && env.aws.secretAccessKey
 );
+
+export const isTwilioConfigured = Boolean(
+  env.sms.provider === 'twilio' &&
+    env.sms.twilio.accountSid &&
+    env.sms.twilio.authToken &&
+    env.sms.twilio.from
+);
+
+// The SMS provider actually in use; null = SMS is logged to the console.
+export const activeSmsProvider = (isSnsConfigured && 'sns') || (isTwilioConfigured && 'twilio') || null;
+
+export const isSmsConfigured = Boolean(activeSmsProvider);
 
 export const isS3Configured = Boolean(
   env.aws.accessKeyId && env.aws.secretAccessKey && env.aws.bucket

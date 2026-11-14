@@ -1,8 +1,8 @@
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
-import env, { isSmsConfigured } from '../config/env.js';
+import env, { activeSmsProvider, isSmsConfigured } from '../config/env.js';
 
 let client = null;
-if (isSmsConfigured) {
+if (activeSmsProvider === 'sns') {
   client = new SNSClient({
     region: env.aws.region,
     credentials: {
@@ -23,17 +23,35 @@ export function toE164India(phone) {
   return digits ? `+${digits}` : '';
 }
 
-// Sends a transactional SMS via AWS SNS; without SMS_PROVIDER=sns it logs to
-// the console instead (same dev pattern as mail) so flows remain testable.
-// The DLT entity/template attributes route Indian traffic through the cheap
-// local (DLT) route — without them AWS uses the pricey international route.
+// Twilio Messages API over HTTPS (no SDK needed). TWILIO_FROM may be a Twilio
+// number or a Messaging Service SID (MG...).
+async function sendViaTwilio(to, message) {
+  const { accountSid, authToken, from } = env.sms.twilio;
+  const body = new URLSearchParams({ To: to, Body: message });
+  body.set(from.startsWith('MG') ? 'MessagingServiceSid' : 'From', from);
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    method: 'POST',
+    headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}` },
+    body,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Twilio responded ${res.status}: ${data.message || JSON.stringify(data)}`);
+  return data;
+}
+
+// Sends a transactional SMS via Twilio (SMS_PROVIDER=twilio) or AWS SNS
+// (SMS_PROVIDER=sns); with neither it logs to the console instead (same dev
+// pattern as mail) so flows remain testable.
+// For SNS, the DLT entity/template attributes route Indian traffic through the
+// cheap local (DLT) route — without them AWS uses the pricey international route.
 export async function sendSms(phone, message) {
   const to = toE164India(phone);
-  if (!client) {
+  if (!activeSmsProvider) {
     console.log(`📱 [sms:dev] To: ${to || phone} | ${message}`);
     return { dev: true };
   }
   if (!to) throw new Error(`Cannot send SMS — invalid phone number: "${phone}"`);
+  if (activeSmsProvider === 'twilio') return sendViaTwilio(to, message);
 
   const MessageAttributes = {
     'AWS.SNS.SMS.SMSType': { DataType: 'String', StringValue: 'Transactional' },
